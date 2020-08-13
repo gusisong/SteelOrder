@@ -1,9 +1,9 @@
 import win32com.client, win32gui, win32con, subprocess
-import time, datetime
+import time
 import pandas as pd
 
 
-def CreateOrder(account_name, password, data, apply_month):
+def CreateOrder(account_name, password, data, apply_year, apply_month, start_time):
     sap_app = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
     subprocess.Popen(sap_app)
     time.sleep(2)
@@ -43,7 +43,7 @@ def CreateOrder(account_name, password, data, apply_month):
     plant_list = list(set(data['工厂']))
     for plant in plant_list:
 
-        # 设置缺省值（工厂、月份）
+        # 设置缺省值（工厂、年月）
         try:
             session.findById(
                 "wnd[0]/usr/subSUB0:SAPLMEGUI:0016/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").pressToolbarButton(
@@ -54,8 +54,8 @@ def CreateOrder(account_name, password, data, apply_month):
                 "&MEITPRP")
 
         session.findById("wnd[1]/usr/subSUB1:SAPLMEPERS:1106/ctxtMEREQ_PROP-WERKS").text = plant
-        session.findById("wnd[1]/usr/subSUB1:SAPLMEPERS:1106/ctxtMEREQ_PROP-EEIND").text = ("{}.2020").format(
-            apply_month)
+        session.findById("wnd[1]/usr/subSUB1:SAPLMEPERS:1106/ctxtMEREQ_PROP-EEIND").text = ("{0}.{1}").format(
+            apply_month, apply_year)
         session.findById("wnd[1]/tbar[0]/btn[11]").press()
 
         # 筛选工厂
@@ -86,12 +86,10 @@ def CreateOrder(account_name, password, data, apply_month):
                         session.findById(
                             "wnd[0]/usr/subSUB0:SAPLMEGUI:0016/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").modifyCell(
                             count + n, "MATNR", part_number)
-
                     except:
                         session.findById(
                             "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").modifyCell(
                             count + n, "MATNR", part_number)
-
                     n += 1
 
                 try:
@@ -100,7 +98,6 @@ def CreateOrder(account_name, password, data, apply_month):
                 except:
                     session.findById(
                         "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").pressEnter()
-
                 count += 10
 
             # 校验基础信息是否完整，记录问题零件索引号
@@ -115,20 +112,24 @@ def CreateOrder(account_name, password, data, apply_month):
                         "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").GetCellValue(
                         i, "TXZ01")
 
-                if description:
-                    continue
-                else:
+                if not description:
                     failed_index_list.append(i)
 
-            # 如无问题零件，继续运行
-            if failed_index_list == []:
-                pass
+            # print(failed_index_list)
 
             # 有问题零件，重新执行
-            else:
+            if failed_index_list:
+
                 # 记录本轮问题零件Dataframe，合并入问题零件清单总表
                 failed_df_new = fil_buyer.iloc[failed_index_list]
                 frames.append(failed_df_new)
+
+                # 问题零件写入csv文件
+                failed_df = pd.concat(frames)
+                failed_df.to_csv(
+                    'FailedList/FailedList_{}.csv'.format(start_time),
+                    encoding='GB2312',
+                    index=None)
 
                 # 更新fil_buyer，剔除问题零件
                 fil_buyer = fil_buyer.drop(failed_index_list)
@@ -139,9 +140,7 @@ def CreateOrder(account_name, password, data, apply_month):
                 session.findById("wnd[0]/tbar[0]/okcd").text = "ME51N"
                 session.findById("wnd[0]").sendVKey(0)
 
-                if fil_buyer.empty == True:
-                    pass
-                else:
+                if not fil_buyer.empty:
                     # 填入物料号
                     part_number_list = list(fil_buyer['物料编号'])
                     count = 0
@@ -160,7 +159,6 @@ def CreateOrder(account_name, password, data, apply_month):
                                 session.findById(
                                     "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").modifyCell(
                                     count + n, "MATNR", part_number)
-
                             n += 1
 
                         try:
@@ -169,12 +167,12 @@ def CreateOrder(account_name, password, data, apply_month):
                         except:
                             session.findById(
                                 "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").pressEnter()
-
                         count += 10
 
             # 判断表格是否为空
-            if fil_buyer.empty == True:
-                pass
+            localtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            if fil_buyer.empty:
+                print('[{0}] {1}工厂_{2} 申请失败，{3}个零件未录入'.format(localtime, plant, buyer, len(failed_index_list)))
 
             else:
                 # 填入订货数量
@@ -222,8 +220,6 @@ def CreateOrder(account_name, password, data, apply_month):
                             session.findById(
                                 "wnd[0]/usr/subSUB0:SAPLMEGUI:0015/subSUB2:SAPLMEVIEWS:1100/subSUB2:SAPLMEVIEWS:1200/subSUB1:SAPLMEGUI:3212/cntlGRIDCONTROL/shellcont/shell").modifyCell(
                                 i, "PREIS", "6")
-                    else:
-                        continue
 
                 # 回车确认
                 try:
@@ -237,7 +233,14 @@ def CreateOrder(account_name, password, data, apply_month):
                 # session.findById("wnd[0]/tbar[0]/btn[11]").press()
 
                 localtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                print('[{0}] {1}工厂_{2} 申请完成'.format(localtime, plant, buyer))
+
+                if failed_index_list:
+                    print('[{0}] {1}工厂_{2} 申请完成，{3}个零件未录入'.format(localtime, plant, buyer,len(failed_index_list)))
+                else:
+                    print('[{0}] {1}工厂_{2} 申请完成'.format(localtime, plant, buyer))
+
+                # 调试用，单次运行，循环运行需关闭
+                # ans = input('xxx')
 
                 # 调试用，不保存退出重进
                 session.findById("wnd[0]/tbar[0]/btn[3]").press()
@@ -245,25 +248,16 @@ def CreateOrder(account_name, password, data, apply_month):
                 session.findById("wnd[0]/tbar[0]/okcd").text = "ME51N"
                 session.findById("wnd[0]").sendVKey(0)
 
-                # 调试用，单次运行，循环运行需关闭
-                # break
 
-    # 问题零件清单写入文件
-    if frames == []:
-        session.findById("wnd[0]").close()
-        session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
-        print('运行完毕，无问题零件')
+    # 退出窗口
+    session.findById("wnd[0]").close()
+    session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
+
+    if frames:
+        print('运行完毕，问题零件清单见FailedList文件夹')
 
     else:
-        failed_df = pd.concat(frames)
-        failed_df.to_csv(
-            'FailedList/FailedList_{}.csv'.format(format(time.strftime('%Y%m%d_%H%M%S', time.localtime(time.time())))),
-            encoding='GB2312',
-            index=None)
-
-        session.findById("wnd[0]").close()
-        session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
-        print('运行完毕，{}个零件缺失基础信息未录入，清单见FailedList文件夹'.format(failed_df.shape[0]))
+        print('运行完毕，无问题零件')
 
 
 def main():
@@ -276,11 +270,14 @@ def main():
     data = pd.read_excel('OrderInfo/Template.xlsx', index_col=0, header=1)
     data.rename(columns={'料片\n供应商': '订货单位'}, inplace=True)
 
-    # 设定采购订单申请月份
-    apply_month = input('请输入订单申请月份(数字)，按回车')
-    # apply_month = datetime.datetime.now().month
+    # 设定采购订单申请年月
+    apply_year = input('请输入订单申请年份(如:2020)，按回车')
+    apply_month = input('请输入订单申请月份(如:8)，按回车')
 
-    CreateOrder(account_name, password, data, apply_month)
+    # 记录启动时间
+    start_time = time.strftime('%Y%m%d_%H%M%S', time.localtime(time.time()))
+
+    CreateOrder(account_name, password, data, apply_year, apply_month, start_time)
 
 
 if __name__ == '__main__':
